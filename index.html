@@ -376,9 +376,11 @@
                         className={`w-2 h-2 rounded-full transition-all ${
                             result === 'W' 
                             ? 'bg-emerald-500' 
+                            : result === 'L'
+                            ? 'bg-red-500'
                             : 'bg-gray-700'
                         }`}
-                        title={result === 'W' ? 'Zmaga' : 'Poraz'}
+                        title={result === 'W' ? 'Zmaga' : result === 'L' ? 'Poraz' : 'Ni igral'}
                     />
                 ))}
             </div>
@@ -1602,7 +1604,7 @@
                                     <div className="flex items-center gap-2 mt-0.5">
                                         <div className={`w-1.5 h-1.5 rounded-full ${isFirebaseConfigured() ? 'bg-emerald-500' : 'bg-gray-500'}`}></div>
                                         <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                                            1. Sezona • {isFirebaseConfigured() ? 'Sinhronizirano' : 'Lokalno'}
+                                            1. Sezona
                                         </p>
                                     </div>
                                 </div>
