@@ -1,0 +1,17 @@
+# Firebase Configuration (contains secrets)
+config.js
+
+# Firebase Admin SDK (if used)
+*-firebase-adminsdk-*.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+

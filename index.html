@@ -15,24 +15,16 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- Firebase Configuration (loaded from external file) -->
+    <script src="config.js"></script>
+    
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <script>
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyDNtYSNhA7GGqOZZCW7DCRfimEQkv3NA2A",
-            authDomain: "fuzbal-b5439.firebaseapp.com",
-            databaseURL: "https://fuzbal-b5439-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "fuzbal-b5439",
-            storageBucket: "fuzbal-b5439.firebasestorage.app",
-            messagingSenderId: "87140388690",
-            appId: "1:87140388690:web:1976fe3d2551203417b48b"
-        };
-
         // Initialize Firebase with error handling
         try {
-            if (typeof firebase !== 'undefined') {
+            if (typeof firebase !== 'undefined' && typeof firebaseConfig !== 'undefined') {
                 const app = firebase.initializeApp(firebaseConfig);
                 const database = firebase.database();
                 
@@ -40,7 +32,7 @@
                 window.firebaseDb = database;
                 window.firebaseConfig = firebaseConfig;
             } else {
-                console.error('Firebase SDK not loaded');
+                console.error('Firebase SDK or config not loaded. Make sure config.js exists with your Firebase credentials.');
             }
         } catch (error) {
             console.error('Firebase initialization error:', error);
