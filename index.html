@@ -181,6 +181,39 @@
             }
         };
 
+        // Upload image to Imgur (free hosting, no auth needed)
+        const uploadToImgur = async (imageDataUrl) => {
+            try {
+                // Extract base64 data from data URL (remove data:image/jpeg;base64, prefix)
+                const base64Data = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
+                
+                // Upload to Imgur using FormData
+                const formData = new FormData();
+                formData.append('image', base64Data);
+                
+                // Upload to Imgur (anonymous, no auth required)
+                const uploadResponse = await fetch('https://api.imgur.com/3/image', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Client-ID 546c25a59c58ad7' // Imgur's public client ID
+                    },
+                    body: formData
+                });
+                
+                const data = await uploadResponse.json();
+                
+                if (data.success && data.data && data.data.link) {
+                    return data.data.link; // Returns URL like https://i.imgur.com/xyz.jpg
+                } else {
+                    throw new Error(data.data?.error || 'Upload failed');
+                }
+            } catch (error) {
+                console.error('Imgur upload failed:', error);
+                // Fallback: if Imgur fails, return null so user can use URL input instead
+                throw error;
+            }
+        };
+
         // Convert image file to Base64 (stores directly in database)
         // Compress and resize image to be under 1MB
         const compressImage = (file, maxSizeMB = 1) => {
@@ -1007,20 +1040,35 @@
                 let finalImageUrl = null;
                 
                 // Prioritize cropped image (check ref first, then state)
-                if (compressedImageRef.current) {
-                    finalImageUrl = compressedImageRef.current;
-                } else if (croppedImage) {
-                    finalImageUrl = croppedImage;
-                } else if (imageUrl && imageUrl.trim()) {
-                    finalImageUrl = imageUrl.trim();
+                let imageToSave = compressedImageRef.current || croppedImage || (imageUrl && imageUrl.trim()) || null;
+                
+                // If image is a data URL (Base64), upload to Imgur first
+                if (imageToSave && imageToSave.startsWith('data:image')) {
+                    try {
+                        // Compress first if not already compressed
+                        if (!compressedImageRef.current && croppedImage) {
+                            const response = await fetch(croppedImage);
+                            const blob = await response.blob();
+                            const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
+                            imageToSave = await compressImage(file);
+                        }
+                        // Upload to Imgur
+                        finalImageUrl = await uploadToImgur(imageToSave);
+                    } catch (error) {
+                        console.error('Image upload failed:', error);
+                        alert('Nalaganje slike ni uspelo. Prosimo uporabite URL slike namesto tega ali poskusite znova.');
+                        setUploading(false);
+                        return;
+                    }
+                } else if (imageToSave) {
+                    // Already a URL, use it directly
+                    finalImageUrl = imageToSave.trim() || null;
                 }
                 
                 // Ensure we have a valid image URL (not empty string)
                 if (finalImageUrl === '') {
                     finalImageUrl = null;
                 }
-                
-                console.log('Saving player with image:', finalImageUrl ? 'Yes' : 'No');
                 
                 // Allow saving without image (it's optional)
                 onAddPlayer(name.trim(), finalImageUrl);
@@ -1242,12 +1290,29 @@
                 let finalImageUrl = null;
                 
                 // Prioritize cropped image (check ref first, then state)
-                if (compressedImageRef.current) {
-                    finalImageUrl = compressedImageRef.current;
-                } else if (croppedImage) {
-                    finalImageUrl = croppedImage;
-                } else if (imageUrl && imageUrl.trim()) {
-                    finalImageUrl = imageUrl.trim();
+                let imageToSave = compressedImageRef.current || croppedImage || (imageUrl && imageUrl.trim()) || null;
+                
+                // If image is a data URL (Base64), upload to Imgur first
+                if (imageToSave && imageToSave.startsWith('data:image')) {
+                    try {
+                        // Compress first if not already compressed
+                        if (!compressedImageRef.current && croppedImage) {
+                            const response = await fetch(croppedImage);
+                            const blob = await response.blob();
+                            const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
+                            imageToSave = await compressImage(file);
+                        }
+                        // Upload to Imgur
+                        finalImageUrl = await uploadToImgur(imageToSave);
+                    } catch (error) {
+                        console.error('Image upload failed:', error);
+                        alert('Nalaganje slike ni uspelo. Prosimo uporabite URL slike namesto tega ali poskusite znova.');
+                        setUploading(false);
+                        return;
+                    }
+                } else if (imageToSave) {
+                    // Already a URL, use it directly
+                    finalImageUrl = imageToSave.trim() || null;
                 } else if (player.imageUrl) {
                     // Keep existing image if no new one provided
                     finalImageUrl = player.imageUrl;
@@ -1257,8 +1322,6 @@
                 if (finalImageUrl === '') {
                     finalImageUrl = null;
                 }
-                
-                console.log('Saving player with image:', finalImageUrl ? 'Yes' : 'No');
                 
                 onSavePlayer(player.id, name.trim(), finalImageUrl);
                 setUploading(false);
@@ -1717,12 +1780,12 @@
             const [mounted, setMounted] = useState(false);
             const [isSyncing, setIsSyncing] = useState(false);
 
-            // Load data on mount - Realtime Database or localStorage
+            // Load data on mount - Realtime Database or localStorage (ONCE, no listeners)
             useEffect(() => {
                 const loadData = async () => {
                     try {
                         if (isFirebaseConfigured()) {
-                            // Try Realtime Database first
+                            // Try Realtime Database first (load once)
                             setIsSyncing(true);
                             const dbPlayersData = await getRealtimeData('players');
                             const dbMatchesData = await getRealtimeData('matches');
@@ -1744,26 +1807,8 @@
                             
                             setIsSyncing(false);
                             
-                            // Set up real-time listeners
-                            const unsubscribePlayers = setupRealtimeListener('players', (data) => {
-                                // Handle both empty and non-empty arrays
-                                if (data !== null && Array.isArray(data)) {
-                                    setPlayers(data);
-                                }
-                            });
-                            
-                            const unsubscribeMatches = setupRealtimeListener('matches', (data) => {
-                                // Handle both empty and non-empty arrays
-                                if (data !== null && Array.isArray(data)) {
-                                    setMatches(data);
-                                }
-                            });
-                            
-                            // Cleanup listeners on unmount
-                            return () => {
-                                if (unsubscribePlayers) unsubscribePlayers();
-                                if (unsubscribeMatches) unsubscribeMatches();
-                            };
+                            // REMOVED: Real-time listeners cause infinite download loop
+                            // Data is loaded once on mount, then saved when changed locally
                         } else {
                             // Fallback to localStorage
                             setPlayers(getStoredPlayers());
@@ -1776,32 +1821,32 @@
                         setMatches(getStoredMatches());
                     } finally {
                         // Always set mounted to true, even if there's an error
-                setMounted(true);
+                        setMounted(true);
                     }
                 };
                 
                 loadData();
             }, []);
 
-            // Save players when they change (debounced)
+            // Save players when they change (debounced) - but not during initial load
             useEffect(() => {
-                if (mounted && players.length > 0) {
+                if (mounted && !isSyncing && players.length > 0) {
                     const timeoutId = setTimeout(() => {
                         savePlayers(players);
-                    }, 500); // Debounce saves
+                    }, 1000); // Increased debounce to reduce saves
                     return () => clearTimeout(timeoutId);
                 }
-            }, [players, mounted]);
+            }, [players, mounted, isSyncing]);
 
-            // Save matches when they change (debounced)
+            // Save matches when they change (debounced) - but not during initial load
             useEffect(() => {
-                if (mounted) {
+                if (mounted && !isSyncing) {
                     const timeoutId = setTimeout(() => {
                         saveMatches(matches);
-                    }, 500); // Debounce saves
+                    }, 1000); // Increased debounce to reduce saves
                     return () => clearTimeout(timeoutId);
                 }
-            }, [matches, mounted]);
+            }, [matches, mounted, isSyncing]);
 
             const addPlayer = (name, imageUrl = null) => {
                 const newPlayer = {
