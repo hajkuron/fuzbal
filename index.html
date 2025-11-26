@@ -181,36 +181,99 @@
             }
         };
 
-        // Upload image to Imgur (free hosting, no auth needed)
-        const uploadToImgur = async (imageDataUrl) => {
+        // Fix Imgur URLs to direct image format (i.imgur.com/ID.jpg)
+        const fixImgurUrl = (url) => {
+            if (!url || typeof url !== 'string') return url;
+            
+            const trimmed = url.trim();
+            
+            // If it's already a direct image link with proper format, return as is
+            if (trimmed.startsWith('https://i.imgur.com/') && trimmed.match(/\.(jpg|jpeg|png|gif)$/i)) {
+                return trimmed;
+            }
+            
+            // If it's a data URL (for preview), return as is
+            if (trimmed.startsWith('data:image')) {
+                return trimmed;
+            }
+            
+            // Extract image ID from various formats:
+            // - https://imgur.com/8S8hACL
+            // - https://imgur.com/a/8S8hACL
+            // - imgur.com/8S8hACL (no https)
+            // - 8S8hACL (just the ID)
+            // - 8S8hACL.jpg or 8S8hACL.jpeg (ID with extension)
+            let imageId = null;
+            
+            if (trimmed.includes('imgur.com/')) {
+                const parts = trimmed.split('/');
+                // Find the ID part (usually the last non-empty part before any query params)
+                for (let i = parts.length - 1; i >= 0; i--) {
+                    let part = parts[i].split('?')[0]; // Remove query params
+                    // Remove extension if present
+                    part = part.replace(/\.(jpg|jpeg|png|gif)$/i, '');
+                    if (part && part.match(/^[a-zA-Z0-9]+$/)) {
+                        imageId = part;
+                        break;
+                    }
+                }
+            } else {
+                // Might be just an ID or ID with extension
+                const match = trimmed.match(/^([a-zA-Z0-9]+)(\.(jpg|jpeg|png|gif))?$/i);
+                if (match) {
+                    imageId = match[1];
+                }
+            }
+            
+            // Convert to direct image link
+            if (imageId) {
+                return `https://i.imgur.com/${imageId}.jpg`;
+            }
+            
+            // If we can't parse it, return as is (might be a different image host)
+            return trimmed;
+        };
+
+        // Upload image using free image hosting (ImgBB - requires free API key)
+        // Get your free API key: https://api.imgbb.com/ (takes 30 seconds, completely free)
+        const uploadToFreeImageHost = async (imageDataUrl) => {
+            // Get API key from config or use default
+            // You can set this in your config.js: window.IMGBB_API_KEY = 'your-key-here'
+            const API_KEY = window.IMGBB_API_KEY || 'YOUR_IMGBB_API_KEY';
+            
+            if (API_KEY === 'YOUR_IMGBB_API_KEY') {
+                throw new Error('ImgBB API key not set. Get a free one at https://api.imgbb.com/ (takes 30 seconds)');
+            }
+            
             try {
-                // Extract base64 data from data URL (remove data:image/jpeg;base64, prefix)
+                // Convert data URL to base64 string
                 const base64Data = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
                 
-                // Upload to Imgur using FormData
+                // Upload to ImgBB
                 const formData = new FormData();
+                formData.append('key', API_KEY);
                 formData.append('image', base64Data);
                 
-                // Upload to Imgur (anonymous, no auth required)
-                const uploadResponse = await fetch('https://api.imgur.com/3/image', {
+                const uploadResponse = await fetch('https://api.imgbb.com/1/upload', {
                     method: 'POST',
-                    headers: {
-                        'Authorization': 'Client-ID 546c25a59c58ad7' // Imgur's public client ID
-                    },
                     body: formData
                 });
                 
+                if (!uploadResponse.ok) {
+                    throw new Error(`Upload failed: ${uploadResponse.status}`);
+                }
+                
                 const data = await uploadResponse.json();
                 
-                if (data.success && data.data && data.data.link) {
-                    return data.data.link; // Returns URL like https://i.imgur.com/xyz.jpg
+                if (data.success && data.data) {
+                    // Return direct image URL
+                    return data.data.url || data.data.image?.url;
                 } else {
-                    throw new Error(data.data?.error || 'Upload failed');
+                    throw new Error(data.error?.message || 'Upload failed');
                 }
             } catch (error) {
-                console.error('Imgur upload failed:', error);
-                // Fallback: if Imgur fails, return null so user can use URL input instead
-                throw error;
+                console.error('Image upload failed:', error);
+                throw new Error(`Image upload failed: ${error.message}. Get a free API key at https://api.imgbb.com/`);
             }
         };
 
@@ -352,12 +415,28 @@
             return stored ? JSON.parse(stored) : [];
         };
 
+
         const savePlayers = async (players) => {
+            // CRITICAL: Never save Base64 images to Firebase
+            // Also ensure all Imgur URLs are in correct format
+            const sanitizedPlayers = players.map(player => {
+                if (player.imageUrl && player.imageUrl.startsWith('data:image')) {
+                    console.warn('Prevented saving Base64 image for', player.name, '- image will be lost!');
+                    // Remove Base64 image - user must upload to Imgur first
+                    return { ...player, imageUrl: null };
+                }
+                // Fix Imgur URL format if present
+                if (player.imageUrl) {
+                    return { ...player, imageUrl: fixImgurUrl(player.imageUrl) };
+                }
+                return player;
+            });
+            
             // Try Realtime Database first
-            const saved = await saveRealtimeData('players', players);
+            const saved = await saveRealtimeData('players', sanitizedPlayers);
             if (!saved) {
                 // Fallback to localStorage
-                localStorage.setItem(STORAGE_KEYS.PLAYERS, JSON.stringify(players));
+                localStorage.setItem(STORAGE_KEYS.PLAYERS, JSON.stringify(sanitizedPlayers));
             }
         };
 
@@ -1052,11 +1131,11 @@
                             const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
                             imageToSave = await compressImage(file);
                         }
-                        // Upload to Imgur
-                        finalImageUrl = await uploadToImgur(imageToSave);
+                        // Upload to free image hosting (PostImage.org)
+                        finalImageUrl = await uploadToFreeImageHost(imageToSave);
                     } catch (error) {
                         console.error('Image upload failed:', error);
-                        alert('Nalaganje slike ni uspelo. Prosimo uporabite URL slike namesto tega ali poskusite znova.');
+                        alert('Nalaganje slike ni uspelo. Prosimo poskusite znova ali uporabite URL slike.');
                         setUploading(false);
                         return;
                     }
@@ -1302,11 +1381,11 @@
                             const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
                             imageToSave = await compressImage(file);
                         }
-                        // Upload to Imgur
-                        finalImageUrl = await uploadToImgur(imageToSave);
+                        // Upload to free image hosting (PostImage.org)
+                        finalImageUrl = await uploadToFreeImageHost(imageToSave);
                     } catch (error) {
                         console.error('Image upload failed:', error);
-                        alert('Nalaganje slike ni uspelo. Prosimo uporabite URL slike namesto tega ali poskusite znova.');
+                        alert('Nalaganje slike ni uspelo. Prosimo poskusite znova ali uporabite URL slike.');
                         setUploading(false);
                         return;
                     }
@@ -1364,6 +1443,16 @@
                                                 src={player.imageUrl} 
                                                 alt={player.name}
                                                 className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.target.style.display = 'none';
+                                                    const parent = e.target.parentElement;
+                                                    if (parent && !parent.querySelector('.error-fallback')) {
+                                                        const fallback = document.createElement('div');
+                                                        fallback.className = 'error-fallback w-full h-full flex items-center justify-center text-xs text-gray-600';
+                                                        fallback.textContent = 'Napaka';
+                                                        parent.appendChild(fallback);
+                                                    }
+                                                }}
                                             />
                                         </div>
                                     </div>
@@ -1619,6 +1708,16 @@
                                             src={player.imageUrl} 
                                             alt={player.name}
                                             className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                const parent = e.target.parentElement;
+                                                if (parent && !parent.querySelector('.error-fallback')) {
+                                                    const fallback = document.createElement('div');
+                                                    fallback.className = 'error-fallback w-full h-full flex items-center justify-center text-2xl font-bold text-gray-400';
+                                                    fallback.textContent = player.name.split(' ').map(n => n[0]).join('').slice(0,2);
+                                                    parent.appendChild(fallback);
+                                                }
+                                            }}
                                         />
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-gray-400">
@@ -1779,6 +1878,8 @@
             const [matches, setMatches] = useState([]);
             const [mounted, setMounted] = useState(false);
             const [isSyncing, setIsSyncing] = useState(false);
+            const lastSavedPlayersRef = React.useRef(null);
+            const lastSavedMatchesRef = React.useRef(null);
 
             // Load data on mount - Realtime Database or localStorage (ONCE, no listeners)
             useEffect(() => {
@@ -1794,15 +1895,37 @@
                             const dbMatches = dbMatchesData?.items || null;
                             
                             if (dbPlayers !== null && dbPlayers.length > 0) {
-                                setPlayers(dbPlayers);
+                                // Fix any Imgur URLs to direct image format
+                                const fixedPlayers = dbPlayers.map(player => ({
+                                    ...player,
+                                    imageUrl: player.imageUrl ? fixImgurUrl(player.imageUrl) : null
+                                }));
+                                setPlayers(fixedPlayers);
+                                lastSavedPlayersRef.current = JSON.stringify(fixedPlayers);
+                                
+                                // Save fixed URLs back if any were changed
+                                const needsFix = fixedPlayers.some((p, i) => p.imageUrl !== dbPlayers[i].imageUrl);
+                                if (needsFix) {
+                                    await saveRealtimeData('players', fixedPlayers);
+                                }
                             } else {
-                                setPlayers(getStoredPlayers());
+                                const localPlayers = getStoredPlayers();
+                                // Fix any Imgur URLs in local storage too
+                                const fixedLocalPlayers = localPlayers.map(player => ({
+                                    ...player,
+                                    imageUrl: player.imageUrl ? fixImgurUrl(player.imageUrl) : null
+                                }));
+                                setPlayers(fixedLocalPlayers);
+                                lastSavedPlayersRef.current = JSON.stringify(fixedLocalPlayers);
                             }
                             
                             if (dbMatches !== null) {
                                 setMatches(dbMatches);
+                                lastSavedMatchesRef.current = JSON.stringify(dbMatches);
                             } else {
-                                setMatches(getStoredMatches());
+                                const localMatches = getStoredMatches();
+                                setMatches(localMatches);
+                                lastSavedMatchesRef.current = JSON.stringify(localMatches);
                             }
                             
                             setIsSyncing(false);
@@ -1831,9 +1954,16 @@
             // Save players when they change (debounced) - but not during initial load
             useEffect(() => {
                 if (mounted && !isSyncing && players.length > 0) {
+                    // Check if data actually changed to prevent unnecessary saves
+                    const playersJson = JSON.stringify(players);
+                    if (lastSavedPlayersRef.current === playersJson) {
+                        return; // No change, skip save
+                    }
+                    
                     const timeoutId = setTimeout(() => {
                         savePlayers(players);
-                    }, 1000); // Increased debounce to reduce saves
+                        lastSavedPlayersRef.current = playersJson;
+                    }, 2000); // Increased debounce to reduce saves
                     return () => clearTimeout(timeoutId);
                 }
             }, [players, mounted, isSyncing]);
@@ -1841,9 +1971,16 @@
             // Save matches when they change (debounced) - but not during initial load
             useEffect(() => {
                 if (mounted && !isSyncing) {
+                    // Check if data actually changed to prevent unnecessary saves
+                    const matchesJson = JSON.stringify(matches);
+                    if (lastSavedMatchesRef.current === matchesJson) {
+                        return; // No change, skip save
+                    }
+                    
                     const timeoutId = setTimeout(() => {
                         saveMatches(matches);
-                    }, 1000); // Increased debounce to reduce saves
+                        lastSavedMatchesRef.current = matchesJson;
+                    }, 2000); // Increased debounce to reduce saves
                     return () => clearTimeout(timeoutId);
                 }
             }, [matches, mounted, isSyncing]);
