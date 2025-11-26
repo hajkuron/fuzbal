@@ -12,4 +12,8 @@ const firebaseConfig = {
     appId: "YOUR_APP_ID"
 };
 
+// ImgBB API Key for free image hosting
+// Get your free API key at: https://api.imgbb.com/
+window.IMGBB_API_KEY = "YOUR_IMGBB_API_KEY";
+
 
