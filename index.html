@@ -2245,14 +2245,20 @@
                                     </div>
                                 ) : (
                                 <div className="divide-y divide-[#27272a]">
-                                    {sortedPlayers.map((player, index) => (
+                                    {sortedPlayers.map((player, index) => {
+                                        const isRelegationZone = index >= sortedPlayers.length - 5;
+                                        return (
                                         <div 
                                             key={player.id} 
                                             onClick={() => {
                                                 setSelectedPlayerProfile(player);
                                                 setShowPlayerProfileModal(true);
                                             }}
-                                            className="p-4 flex items-center justify-between hover:bg-[#27272a]/40 transition-colors group cursor-pointer"
+                                            className={`p-4 flex items-center justify-between transition-colors group cursor-pointer ${
+                                                isRelegationZone 
+                                                    ? 'bg-red-950/30 hover:bg-red-950/50 border-l-2 border-red-600' 
+                                                    : 'hover:bg-[#27272a]/40'
+                                            }`}
                                         >
                                             
                                             {/* Left: Rank & Info */}
@@ -2299,7 +2305,8 @@
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 )}
                             </div>
