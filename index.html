@@ -522,7 +522,14 @@
             let losses = 0;
             const form = [];
 
-            matches.forEach(match => {
+            // Sort matches by date (oldest first) to ensure correct form order
+            const sortedMatches = [...matches].sort((a, b) => {
+                const dateA = new Date(a.date);
+                const dateB = new Date(b.date);
+                return dateA - dateB; // Oldest first
+            });
+
+            sortedMatches.forEach(match => {
                 // Only count tracked players (not guest players)
                 const winnerIds = match.winnerIds || [];
                 const loserIds = match.loserIds || [];
@@ -532,17 +539,21 @@
                 
                 if (isWinner) {
                     wins++;
-                    form.unshift('W');
+                    form.unshift('W'); // Add to beginning, so newest is at index 0
                 } else if (isLoser) {
                     losses++;
-                    form.unshift('L');
+                    form.unshift('L'); // Add to beginning, so newest is at index 0
                 }
             });
 
-            // Keep only last 5 results
+            // Calculate points (3 points per win)
+            const points = wins * 3;
+
+            // Keep only last 5 results (most recent 5 games)
             return {
                 wins,
                 losses,
+                points,
                 form: form.slice(0, 5)
             };
         };
@@ -591,7 +602,7 @@
 
         const FormDots = ({ history }) => (
             <div className="flex gap-1.5">
-                {history.map((result, i) => (
+                {history.slice().reverse().map((result, i) => (
                     <div 
                         key={i} 
                         className={`w-2 h-2 rounded-full transition-all ${
@@ -647,7 +658,7 @@
             );
         };
 
-        const MatchModal = ({ isOpen, onClose, players, onSaveMatch }) => {
+        const MatchModal = ({ isOpen, onClose, players, onSaveMatch, editMatch = null }) => {
             const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
             const [selectedWinners, setSelectedWinners] = useState([]);
             const [selectedLosers, setSelectedLosers] = useState([]);
@@ -655,14 +666,24 @@
             const [guestLosers, setGuestLosers] = useState(['']);
 
             useEffect(() => {
-                if (!isOpen) {
+                if (isOpen && editMatch) {
+                    // Populate fields with existing match data
+                    setDate(editMatch.date || new Date().toISOString().split('T')[0]);
+                    setSelectedWinners(editMatch.winnerIds || []);
+                    setSelectedLosers(editMatch.loserIds || []);
+                    const existingGuestWinners = editMatch.guestWinners || [];
+                    const existingGuestLosers = editMatch.guestLosers || [];
+                    setGuestWinners(existingGuestWinners.length > 0 ? [...existingGuestWinners, ''] : ['']);
+                    setGuestLosers(existingGuestLosers.length > 0 ? [...existingGuestLosers, ''] : ['']);
+                } else if (!isOpen) {
+                    // Reset fields when closing
                     setDate(new Date().toISOString().split('T')[0]);
                     setSelectedWinners([]);
                     setSelectedLosers([]);
                     setGuestWinners(['']);
                     setGuestLosers(['']);
                 }
-            }, [isOpen]);
+            }, [isOpen, editMatch]);
 
             const togglePlayer = (playerId, targetCategory = null) => {
                 // If targetCategory is specified (clicked from specific section), use it
@@ -674,9 +695,7 @@
                     } else {
                         // Remove from losers if present, add to winners
                         setSelectedLosers(selectedLosers.filter(id => id !== playerId));
-                        if (selectedWinners.length < 5) {
-                            setSelectedWinners([...selectedWinners, playerId]);
-                        }
+                        setSelectedWinners([...selectedWinners, playerId]);
                     }
                 } else if (targetCategory === 'losers') {
                     // Moving to losers
@@ -698,13 +717,8 @@
                         // Currently loser, remove (unselect)
                         setSelectedLosers(selectedLosers.filter(id => id !== playerId));
                     } else {
-                        // Not selected, add to winners if space available
-                        if (selectedWinners.length < 5) {
-                            setSelectedWinners([...selectedWinners, playerId]);
-                        } else {
-                            // No space in winners, add to losers
-                            setSelectedLosers([...selectedLosers, playerId]);
-                        }
+                        // Not selected, add to winners
+                        setSelectedWinners([...selectedWinners, playerId]);
                     }
                 }
             };
@@ -740,7 +754,7 @@
                 }
 
                 const match = {
-                    id: Date.now(),
+                    id: editMatch ? editMatch.id : Date.now(), // Keep existing ID when editing
                     date: date,
                     winnerIds: selectedWinners,
                     loserIds: selectedLosers,
@@ -748,7 +762,7 @@
                     guestLosers: guestLosers.filter(g => g.trim())
                 };
 
-                onSaveMatch(match);
+                onSaveMatch(match, editMatch ? true : false); // Pass flag to indicate edit mode
                 onClose();
             };
 
@@ -759,7 +773,9 @@
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-40" onClick={onClose}></div>
                     <div className="min-card w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative z-50 animate-fade-in max-h-[90vh] flex flex-col">
                         <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-gray-900/50 flex-shrink-0 sticky top-0 z-10">
-                            <h3 className="text-lg font-sport font-bold text-white uppercase tracking-wide">Vnesi Rezultat Tekme</h3>
+                            <h3 className="text-lg font-sport font-bold text-white uppercase tracking-wide">
+                                {editMatch ? 'Uredi Tekmo' : 'Vnesi Rezultat Tekme'}
+                            </h3>
                             <button onClick={onClose} className="p-1 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition">
                                 <X className="w-5 h-5" />
                             </button>
@@ -1871,6 +1887,7 @@
             const [showPlayerModal, setShowPlayerModal] = useState(false);
             const [showEditPlayerModal, setShowEditPlayerModal] = useState(false);
             const [editingPlayer, setEditingPlayer] = useState(null);
+            const [editingMatch, setEditingMatch] = useState(null);
             const [showPlayerProfileModal, setShowPlayerProfileModal] = useState(false);
             const [selectedPlayerProfile, setSelectedPlayerProfile] = useState(null);
             const [showImportModal, setShowImportModal] = useState(false);
@@ -2022,8 +2039,15 @@
                 }
             };
 
-            const addMatch = (match) => {
-                setMatches([match, ...matches]);
+            const addMatch = (match, isEdit = false) => {
+                if (isEdit) {
+                    // Update existing match
+                    const updatedMatches = matches.map(m => m.id === match.id ? match : m);
+                    setMatches(updatedMatches);
+                } else {
+                    // Add new match
+                    setMatches([match, ...matches]);
+                }
             };
 
             const removeMatch = async (matchId) => {
@@ -2065,8 +2089,14 @@
             });
 
             const sortedPlayers = [...playersWithStats].sort((a, b) => {
+                // Primary sort: Points (descending)
+                if (b.points !== a.points) return b.points - a.points;
+                
+                // Secondary sort (tiebreaker): Win percentage
                 const totalA = a.wins + a.losses;
                 const totalB = b.wins + b.losses;
+                
+                // Players with no games go to the bottom
                 if (totalA === 0 && totalB === 0) return 0;
                 if (totalA === 0) return 1;
                 if (totalB === 0) return -1;
@@ -2074,6 +2104,15 @@
                 const rateA = a.wins / totalA;
                 const rateB = b.wins / totalB;
                 if (rateB !== rateA) return rateB - rateA;
+                
+                // Tertiary sort (tiebreaker): Recent form (last 2 games)
+                // Count wins in the last 2 games
+                const recentGamesCount = 2;
+                const recentWinsA = a.form.slice(0, recentGamesCount).filter(result => result === 'W').length;
+                const recentWinsB = b.form.slice(0, recentGamesCount).filter(result => result === 'W').length;
+                if (recentWinsB !== recentWinsA) return recentWinsB - recentWinsA;
+                
+                // Quaternary sort: Total wins
                 return b.wins - a.wins;
             });
 
@@ -2082,20 +2121,19 @@
                 if (sortedPlayers.length === 0) return null;
                 
                 const topPlayer = sortedPlayers[0];
-                const topTotal = topPlayer.wins + topPlayer.losses;
                 
                 // If no games played, no leader
-                if (topTotal === 0) return null;
+                if (topPlayer.points === 0) return null;
                 
-                const topRate = topPlayer.wins / topTotal;
+                // Check if any other player has the same points AND same win percentage
+                const topTotal = topPlayer.wins + topPlayer.losses;
+                const topRate = topTotal > 0 ? topPlayer.wins / topTotal : 0;
                 
-                // Check if any other player has the same win rate AND same wins
                 const isTied = sortedPlayers.some((player, index) => {
                     if (index === 0) return false; // Skip first player
                     const playerTotal = player.wins + player.losses;
-                    if (playerTotal === 0) return false; // Players with no games don't count
-                    const playerRate = player.wins / playerTotal;
-                    return playerRate === topRate && player.wins === topPlayer.wins;
+                    const playerRate = playerTotal > 0 ? player.wins / playerTotal : 0;
+                    return player.points === topPlayer.points && playerRate === topRate;
                 });
                 
                 return isTied ? null : topPlayer;
@@ -2274,34 +2312,75 @@
                                                 
                                                 <div>
                                                     <div className="font-bold text-gray-200 text-sm">{player.name}</div>
-                                                    <div className="flex md:hidden mt-1 opacity-70">
+                                                    <div className="flex sm:hidden mt-1 items-center gap-2">
+                                                        <span className={`text-xs font-medium ${
+                                                            player.wins + player.losses > 0 && Math.round((player.wins / (player.wins + player.losses)) * 100) >= 50 
+                                                            ? 'text-emerald-400' 
+                                                            : 'text-gray-400'
+                                                        }`}>
+                                                            {player.wins + player.losses > 0 
+                                                                ? `${Math.round((player.wins / (player.wins + player.losses)) * 100)}%` 
+                                                                : '0%'
+                                                            }
+                                                        </span>
+                                                        <span className="text-gray-600 text-xs">•</span>
+                                                        <span className="text-xs text-gray-500">
+                                                            {player.wins}-{player.losses}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex md:hidden lg:hidden mt-1 opacity-70">
                                                         <FormDots history={player.form} />
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Right: Stats */}
-                                            <div className="flex items-center justify-end gap-6 sm:gap-8">
-                                                <div className="text-right hidden sm:block">
-                                                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Razmerje</div>
-                                                    <div className="font-sport text-lg">
+                                            <div className="flex items-center justify-end gap-4 sm:gap-6">
+                                                {/* Points - Main column */}
+                                                <div className="text-right w-16">
+                                                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Točke</div>
+                                                    <div className="font-sport text-2xl font-bold text-amber-400 tabular-nums">
+                                                        {player.points}
+                                                    </div>
+                                                </div>
+
+                                                {/* Win Percentage */}
+                                                <div className="text-right hidden sm:block w-16">
+                                                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">% Zmag</div>
+                                                    <div className="font-sport text-lg tabular-nums">
                                                         {player.wins + player.losses > 0 ? (
-                                                            <>
-                                                                <span className="font-bold text-emerald-400">{player.wins}</span>
-                                                        <span className="text-gray-600 mx-1">-</span>
-                                                                <span className="font-bold text-red-400">{player.losses}</span>
-                                                            </>
+                                                            <span className={`font-bold ${
+                                                                Math.round((player.wins / (player.wins + player.losses)) * 100) >= 50 
+                                                                ? 'text-emerald-400' 
+                                                                : 'text-gray-400'
+                                                            }`}>
+                                                                {Math.round((player.wins / (player.wins + player.losses)) * 100)}%
+                                                            </span>
                                                         ) : (
-                                                            <span className="text-gray-600 text-sm">Ni tekem</span>
+                                                            <span className="text-gray-600 text-sm">0%</span>
                                                         )}
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col items-end min-w-[100px]">
-                                                    <WinRateBar wins={player.wins} losses={player.losses} />
-                                                    <div className="hidden md:flex mt-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                                        <FormDots history={player.form} />
+                                                {/* Win/Loss Record */}
+                                                <div className="text-right hidden md:block w-20">
+                                                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Razmerje</div>
+                                                    <div className="font-sport text-base tabular-nums">
+                                                        {player.wins + player.losses > 0 ? (
+                                                            <>
+                                                                <span className="text-emerald-400">{player.wins}</span>
+                                                                <span className="text-gray-600 mx-1">-</span>
+                                                                <span className="text-red-400">{player.losses}</span>
+                                                            </>
+                                                        ) : (
+                                                            <span className="text-gray-600 text-sm">-</span>
+                                                        )}
                                                     </div>
+                                                </div>
+
+                                                {/* Form dots - desktop only */}
+                                                <div className="hidden lg:flex items-center w-20 justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                    <FormDots history={player.form} />
                                                 </div>
                                             </div>
                                         </div>
@@ -2333,13 +2412,25 @@
                                         {/* Match Header */}
                                         <div className="bg-[#27272a]/50 px-5 py-3 border-b border-[#27272a] flex justify-between items-center">
                                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{formatDate(match.date)}</span>
-                                            <button
-                                                onClick={() => removeMatch(match.id)}
-                                                className="p-1.5 hover:bg-red-500/20 rounded-lg text-gray-500 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100"
-                                                title="Izbriši tekmo"
-                                            >
-                                                <Trash className="w-4 h-4" />
-                                            </button>
+                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => {
+                                                        setEditingMatch(match);
+                                                        setShowMatchModal(true);
+                                                    }}
+                                                    className="p-1.5 hover:bg-blue-500/20 rounded-lg text-gray-500 hover:text-blue-400 transition-all"
+                                                    title="Uredi tekmo"
+                                                >
+                                                    <Edit className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => removeMatch(match.id)}
+                                                    className="p-1.5 hover:bg-red-500/20 rounded-lg text-gray-500 hover:text-red-400 transition-all"
+                                                    title="Izbriši tekmo"
+                                                >
+                                                    <Trash className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                         
                                         <div className="flex flex-col sm:flex-row text-sm">
@@ -2480,9 +2571,13 @@
 
                     <MatchModal 
                         isOpen={showMatchModal} 
-                        onClose={() => setShowMatchModal(false)} 
+                        onClose={() => {
+                            setShowMatchModal(false);
+                            setEditingMatch(null);
+                        }} 
                         players={players}
                         onSaveMatch={addMatch}
+                        editMatch={editingMatch}
                     />
                     
                     <AddPlayerModal 
