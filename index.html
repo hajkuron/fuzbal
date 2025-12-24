@@ -115,6 +115,7 @@
         const Database = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
         const Trash = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>;
         const Edit = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+        const Info = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>;
 
         // --- DATA STORAGE ---
         const STORAGE_KEYS = {
@@ -695,7 +696,7 @@
                     } else {
                         // Remove from losers if present, add to winners
                         setSelectedLosers(selectedLosers.filter(id => id !== playerId));
-                        setSelectedWinners([...selectedWinners, playerId]);
+                            setSelectedWinners([...selectedWinners, playerId]);
                     }
                 } else if (targetCategory === 'losers') {
                     // Moving to losers
@@ -718,7 +719,7 @@
                         setSelectedLosers(selectedLosers.filter(id => id !== playerId));
                     } else {
                         // Not selected, add to winners
-                        setSelectedWinners([...selectedWinners, playerId]);
+                            setSelectedWinners([...selectedWinners, playerId]);
                     }
                 }
             };
@@ -2046,7 +2047,7 @@
                     setMatches(updatedMatches);
                 } else {
                     // Add new match
-                    setMatches([match, ...matches]);
+                setMatches([match, ...matches]);
                 }
             };
 
@@ -2079,6 +2080,45 @@
                 console.error('Import error:', error);
             };
 
+            // Calculate head-to-head records for groups of players with same points
+            const calculateHeadToHead = (playerIds, allMatches) => {
+                const h2h = {};
+                
+                // Initialize h2h records for all players
+                playerIds.forEach(id => {
+                    h2h[id] = { wins: 0, losses: 0, net: 0 };
+                });
+                
+                // Count wins/losses only from games where tied players faced each other
+                allMatches.forEach(match => {
+                    const winnerIds = match.winnerIds || [];
+                    const loserIds = match.loserIds || [];
+                    
+                    // Find which tied players were in this match
+                    const tiedWinners = winnerIds.filter(id => playerIds.includes(id));
+                    const tiedLosers = loserIds.filter(id => playerIds.includes(id));
+                    
+                    // Only count if at least one tied player was on each side
+                    if (tiedWinners.length > 0 && tiedLosers.length > 0) {
+                        // Each winner gets a win against each loser
+                        tiedWinners.forEach(winnerId => {
+                            h2h[winnerId].wins += tiedLosers.length;
+                        });
+                        // Each loser gets a loss against each winner
+                        tiedLosers.forEach(loserId => {
+                            h2h[loserId].losses += tiedWinners.length;
+                        });
+                    }
+                });
+                
+                // Calculate net (wins - losses)
+                playerIds.forEach(id => {
+                    h2h[id].net = h2h[id].wins - h2h[id].losses;
+                });
+                
+                return h2h;
+            };
+
             // Calculate stats for each player
             const playersWithStats = players.map(player => {
                 const stats = calculatePlayerStats(player.id, matches);
@@ -2092,18 +2132,29 @@
                 // Primary sort: Points (descending)
                 if (b.points !== a.points) return b.points - a.points;
                 
-                // Secondary sort (tiebreaker): Win percentage
+                // Players with no games go to the bottom
                 const totalA = a.wins + a.losses;
                 const totalB = b.wins + b.losses;
-                
-                // Players with no games go to the bottom
                 if (totalA === 0 && totalB === 0) return 0;
                 if (totalA === 0) return 1;
                 if (totalB === 0) return -1;
                 
-                const rateA = a.wins / totalA;
-                const rateB = b.wins / totalB;
-                if (rateB !== rateA) return rateB - rateA;
+                // Secondary sort (tiebreaker): Head-to-head record
+                // Find all players with the same points as these two
+                const samePointsPlayers = playersWithStats.filter(p => 
+                    p.points === a.points && (p.wins + p.losses) > 0
+                );
+                
+                if (samePointsPlayers.length >= 2) {
+                    // Calculate head-to-head only if there are 2+ players tied on points
+                    const playerIds = samePointsPlayers.map(p => p.id);
+                    const h2h = calculateHeadToHead(playerIds, matches);
+                    
+                    const netA = h2h[a.id]?.net || 0;
+                    const netB = h2h[b.id]?.net || 0;
+                    
+                    if (netB !== netA) return netB - netA;
+                }
                 
                 // Tertiary sort (tiebreaker): Recent form (last 2 games)
                 // Count wins in the last 2 games
@@ -2112,11 +2163,16 @@
                 const recentWinsB = b.form.slice(0, recentGamesCount).filter(result => result === 'W').length;
                 if (recentWinsB !== recentWinsA) return recentWinsB - recentWinsA;
                 
-                // Quaternary sort: Total wins
+                // Quaternary sort: Win percentage (still used as final tiebreaker)
+                const rateA = a.wins / totalA;
+                const rateB = b.wins / totalB;
+                if (rateB !== rateA) return rateB - rateA;
+                
+                // Final sort: Total wins
                 return b.wins - a.wins;
             });
 
-            // Check if there's a true tie at the top
+            // Check if there's a true tie at the top (after all tiebreakers)
             const getLeadingPlayer = () => {
                 if (sortedPlayers.length === 0) return null;
                 
@@ -2125,15 +2181,41 @@
                 // If no games played, no leader
                 if (topPlayer.points === 0) return null;
                 
-                // Check if any other player has the same points AND same win percentage
+                // Check if any other player has exactly the same ranking criteria
+                // (same points, same head-to-head, same recent form, same win rate)
                 const topTotal = topPlayer.wins + topPlayer.losses;
                 const topRate = topTotal > 0 ? topPlayer.wins / topTotal : 0;
+                const topRecentWins = topPlayer.form.slice(0, 2).filter(r => r === 'W').length;
+                
+                // Find all players with same points
+                const samePointsPlayers = sortedPlayers.filter(p => 
+                    p.points === topPlayer.points && (p.wins + p.losses) > 0
+                );
+                
+                if (samePointsPlayers.length < 2) {
+                    return topPlayer; // No tie, clear leader
+                }
+                
+                // Calculate head-to-head for tied players
+                const playerIds = samePointsPlayers.map(p => p.id);
+                const h2h = calculateHeadToHead(playerIds, matches);
+                const topH2H = h2h[topPlayer.id]?.net || 0;
                 
                 const isTied = sortedPlayers.some((player, index) => {
                     if (index === 0) return false; // Skip first player
+                    if (player.points !== topPlayer.points) return false;
+                    
                     const playerTotal = player.wins + player.losses;
-                    const playerRate = playerTotal > 0 ? player.wins / playerTotal : 0;
-                    return player.points === topPlayer.points && playerRate === topRate;
+                    if (playerTotal === 0) return false;
+                    
+                    const playerRate = player.wins / playerTotal;
+                    const playerH2H = h2h[player.id]?.net || 0;
+                    const playerRecentWins = player.form.slice(0, 2).filter(r => r === 'W').length;
+                    
+                    // True tie means same on ALL tiebreaker criteria
+                    return playerH2H === topH2H && 
+                           playerRecentWins === topRecentWins && 
+                           playerRate === topRate;
                 });
                 
                 return isTied ? null : topPlayer;
@@ -2285,6 +2367,26 @@
                                 <div className="divide-y divide-[#27272a]">
                                     {sortedPlayers.map((player, index) => {
                                         const isRelegationZone = index >= sortedPlayers.length - 5;
+                                        
+                                        // Calculate tiebreaker info
+                                        const tiedPlayers = sortedPlayers.filter(p => 
+                                            p.points === player.points && (p.wins + p.losses) > 0
+                                        );
+                                        const hasTie = tiedPlayers.length >= 2;
+                                        
+                                        let h2hInfo = null;
+                                        if (hasTie) {
+                                            const tiedPlayerIds = tiedPlayers.map(p => p.id);
+                                            const h2hRecords = calculateHeadToHead(tiedPlayerIds, matches);
+                                            const playerH2H = h2hRecords[player.id];
+                                            h2hInfo = {
+                                                net: playerH2H.net,
+                                                wins: playerH2H.wins,
+                                                losses: playerH2H.losses,
+                                                tiedWith: tiedPlayers.length - 1
+                                            };
+                                        }
+                                        
                                         return (
                                         <div 
                                             key={player.id} 
@@ -2311,7 +2413,18 @@
                                                 <Avatar name={player.name} rank={index + 1} imageUrl={player.imageUrl} />
                                                 
                                                 <div>
-                                                    <div className="font-bold text-gray-200 text-sm">{player.name}</div>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="font-bold text-gray-200 text-sm">{player.name}</div>
+                                                        {h2hInfo && (
+                                                            <div className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                                                h2hInfo.net > 0 ? 'bg-emerald-500/20 text-emerald-400' :
+                                                                h2hInfo.net < 0 ? 'bg-red-500/20 text-red-400' :
+                                                                'bg-gray-700/50 text-gray-400'
+                                                            }`}>
+                                                                H2H {h2hInfo.net > 0 ? '+' : ''}{h2hInfo.net}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     <div className="flex sm:hidden mt-1 items-center gap-2">
                                                         <span className={`text-xs font-medium ${
                                                             player.wins + player.losses > 0 && Math.round((player.wins / (player.wins + player.losses)) * 100) >= 50 
@@ -2369,7 +2482,7 @@
                                                         {player.wins + player.losses > 0 ? (
                                                             <>
                                                                 <span className="text-emerald-400">{player.wins}</span>
-                                                                <span className="text-gray-600 mx-1">-</span>
+                                                        <span className="text-gray-600 mx-1">-</span>
                                                                 <span className="text-red-400">{player.losses}</span>
                                                             </>
                                                         ) : (
@@ -2380,7 +2493,7 @@
 
                                                 {/* Form dots - desktop only */}
                                                 <div className="hidden lg:flex items-center w-20 justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                                    <FormDots history={player.form} />
+                                                        <FormDots history={player.form} />
                                                 </div>
                                             </div>
                                         </div>
@@ -2423,13 +2536,13 @@
                                                 >
                                                     <Edit className="w-4 h-4" />
                                                 </button>
-                                                <button
-                                                    onClick={() => removeMatch(match.id)}
+                                            <button
+                                                onClick={() => removeMatch(match.id)}
                                                     className="p-1.5 hover:bg-red-500/20 rounded-lg text-gray-500 hover:text-red-400 transition-all"
-                                                    title="Izbriši tekmo"
-                                                >
-                                                    <Trash className="w-4 h-4" />
-                                                </button>
+                                                title="Izbriši tekmo"
+                                            >
+                                                <Trash className="w-4 h-4" />
+                                            </button>
                                             </div>
                                         </div>
                                         
