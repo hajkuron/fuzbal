@@ -2366,7 +2366,7 @@
                                 ) : (
                                 <div className="divide-y divide-[#27272a]">
                                     {sortedPlayers.map((player, index) => {
-                                        const isRelegationZone = index >= sortedPlayers.length - 5;
+                                        const isRelegationZone = index >= 5;
                                         
                                         // Calculate tiebreaker info
                                         const tiedPlayers = sortedPlayers.filter(p => 
